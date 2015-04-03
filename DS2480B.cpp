@@ -1,8 +1,11 @@
 /*
 Copyright (c) 2007, Jim Studt  (original old version - many contributors since)
 
-The latest version of this library may be found at:
-  http://www.pjrc.com/teensy/td_libs_OneWire.html
+This library based on OneWire library currently maintained by Paul Stoffregen. However,
+it has been modified to use the DS2480B serial to 1-wire chip instead of direct
+bitbanging on a digital pin. Also, it is unfortunately hard coded to use the AltSoftSerial library
+since this library has no common ancestor with the hardware serial class and there isn't a good way
+to allow use of either
 
 OneWire has been maintained by Paul Stoffregen (paul@pjrc.com) since
 January 2010.  At the time, it was in need of many bug fixes, but had
@@ -114,17 +117,20 @@ sample code bearing this copyright.
 //--------------------------------------------------------------------------
 */
 
-#include "OneWire.h"
+#include "DS2480B.h"
 
 
-OneWire::OneWire(uint8_t pin)
+DS2480B::DS2480B(AltSoftSerial port)
 {
-	pinMode(pin, INPUT);
-	bitmask = PIN_TO_BITMASK(pin);
-	baseReg = PIN_TO_BASEREG(pin);
+	_port = port;
 #if ONEWIRE_SEARCH
 	reset_search();
 #endif
+}
+
+void DS2480B::begin()
+{
+	_port.write(0xC1);
 }
 
 
@@ -134,83 +140,44 @@ OneWire::OneWire(uint8_t pin)
 //
 // Returns 1 if a device asserted a presence pulse, 0 otherwise.
 //
-uint8_t OneWire::reset(void)
+uint8_t DS2480B::reset(void)
 {
-	IO_REG_TYPE mask = bitmask;
-	volatile IO_REG_TYPE *reg IO_REG_ASM = baseReg;
 	uint8_t r;
-	uint8_t retries = 125;
-
-	noInterrupts();
-	DIRECT_MODE_INPUT(reg, mask);
-	interrupts();
-	// wait until the wire is high... just in case
-	do {
-		if (--retries == 0) return 0;
-		delayMicroseconds(2);
-	} while ( !DIRECT_READ(reg, mask));
-
-	noInterrupts();
-	DIRECT_WRITE_LOW(reg, mask);
-	DIRECT_MODE_OUTPUT(reg, mask);	// drive output low
-	interrupts();
-	delayMicroseconds(480);
-	noInterrupts();
-	DIRECT_MODE_INPUT(reg, mask);	// allow it to float
-	delayMicroseconds(70);
-	r = !DIRECT_READ(reg, mask);
-	interrupts();
-	delayMicroseconds(410);
-	return r;
+	_port.write(0xC1);
+	//proper return is 0xCD otherwise something was wrong
+	while (!_port.available());
+	r = _port.read();
+	Serial.print("Reset return is ");
+	Serial.println(r);
+	if (r == 0xCD) return 1;
+	return 0;
 }
 
 //
-// Write a bit. Port and bit is used to cut lookup time and provide
-// more certain timing.
+// Write a bit - actually returns the bit read back in case you care.
 //
-void OneWire::write_bit(uint8_t v)
+uint8_t DS2480B::write_bit(uint8_t v)
 {
-	IO_REG_TYPE mask=bitmask;
-	volatile IO_REG_TYPE *reg IO_REG_ASM = baseReg;
-
-	if (v & 1) {
-		noInterrupts();
-		DIRECT_WRITE_LOW(reg, mask);
-		DIRECT_MODE_OUTPUT(reg, mask);	// drive output low
-		delayMicroseconds(10);
-		DIRECT_WRITE_HIGH(reg, mask);	// drive output high
-		interrupts();
-		delayMicroseconds(55);
-	} else {
-		noInterrupts();
-		DIRECT_WRITE_LOW(reg, mask);
-		DIRECT_MODE_OUTPUT(reg, mask);	// drive output low
-		delayMicroseconds(65);
-		DIRECT_WRITE_HIGH(reg, mask);	// drive output high
-		interrupts();
-		delayMicroseconds(5);
-	}
+	Serial.print("Writing bit ");
+	Serial.println(v);
+	uint8_t val;
+	if (v == 1) _port.write(0x91); //write a single "on" bit to onewire
+	else _port.write(0x81); //write a single "off" bit to onewire
+	while (!_port.available());
+	val = _port.read();
+	Serial.print("Result of write ");
+	Serial.println(val);
+	return val & 1;
 }
 
 //
-// Read a bit. Port and bit is used to cut lookup time and provide
-// more certain timing.
+// Read a bit - short hand for writing a 1 and seeing what we get back.
 //
-uint8_t OneWire::read_bit(void)
+uint8_t DS2480B::read_bit(void)
 {
-	IO_REG_TYPE mask=bitmask;
-	volatile IO_REG_TYPE *reg IO_REG_ASM = baseReg;
-	uint8_t r;
-
-	noInterrupts();
-	DIRECT_MODE_OUTPUT(reg, mask);
-	DIRECT_WRITE_LOW(reg, mask);
-	delayMicroseconds(3);
-	DIRECT_MODE_INPUT(reg, mask);	// let pin float, pull up will raise
-	delayMicroseconds(10);
-	r = DIRECT_READ(reg, mask);
-	interrupts();
-	delayMicroseconds(53);
+	uint8_t r = write_bit(1);
+	Serial.print("Returned bit ");
+	Serial.println(r);
 	return r;
 }
 
@@ -219,47 +186,37 @@ uint8_t OneWire::read_bit(void)
 // pin high, if you need power after the write (e.g. DS18S20 in
 // parasite power mode) then set 'power' to 1, otherwise the pin will
 // go tri-state at the end of the write to avoid heating in a short or
-// other mishap.
+// other mishap. - Currently power isn't actually used now.
 //
-void OneWire::write(uint8_t v, uint8_t power /* = 0 */) {
-    uint8_t bitMask;
-
-    for (bitMask = 0x01; bitMask; bitMask <<= 1) {
-	OneWire::write_bit( (bitMask & v)?1:0);
-    }
-    if ( !power) {
-	noInterrupts();
-	DIRECT_MODE_INPUT(baseReg, bitmask);
-	DIRECT_WRITE_LOW(baseReg, bitmask);
-	interrupts();
-    }
+void DS2480B::write(uint8_t v, uint8_t power /* = 0 */) {
+	uint8_t r;
+	Serial.print("Writing byte ");
+	Serial.println(v, HEX);
+	_port.write(v);
+	//need to double up transmission if the sent byte was one of the command bytes
+	if (v == DATA_MODE || v == COMMAND_MODE || v == PULSE_TERM) _port.write(v);
+	while (!_port.available());
+	r = _port.read(); //throw away reply
+	Serial.print("Response: ");
+	Serial.println(r);
 }
 
-void OneWire::write_bytes(const uint8_t *buf, uint16_t count, bool power /* = 0 */) {
-  for (uint16_t i = 0 ; i < count ; i++)
-    write(buf[i]);
-  if (!power) {
-    noInterrupts();
-    DIRECT_MODE_INPUT(baseReg, bitmask);
-    DIRECT_WRITE_LOW(baseReg, bitmask);
-    interrupts();
-  }
+void DS2480B::write_bytes(const uint8_t *buf, uint16_t count, bool power /* = 0 */) {
+  for (uint16_t i = 0 ; i < count ; i++) write(buf[i]);
 }
 
 //
 // Read a byte
 //
-uint8_t OneWire::read() {
-    uint8_t bitMask;
-    uint8_t r = 0;
-
-    for (bitMask = 0x01; bitMask; bitMask <<= 1) {
-	if ( OneWire::read_bit()) r |= bitMask;
-    }
+uint8_t DS2480B::read() {
+	uint8_t r;
+	_port.write(0xFF);
+	while (!_port.available());
+    r = _port.read();
     return r;
 }
 
-void OneWire::read_bytes(uint8_t *buf, uint16_t count) {
+void DS2480B::read_bytes(uint8_t *buf, uint16_t count) {
   for (uint16_t i = 0 ; i < count ; i++)
     buf[i] = read();
 }
@@ -267,7 +224,7 @@ void OneWire::read_bytes(uint8_t *buf, uint16_t count) {
 //
 // Do a ROM select
 //
-void OneWire::select(const uint8_t rom[8])
+void DS2480B::select(const uint8_t rom[8])
 {
     uint8_t i;
 
@@ -279,16 +236,14 @@ void OneWire::select(const uint8_t rom[8])
 //
 // Do a ROM skip
 //
-void OneWire::skip()
+void DS2480B::skip()
 {
     write(0xCC);           // Skip ROM
 }
 
-void OneWire::depower()
+void DS2480B::depower()
 {
-	noInterrupts();
-	DIRECT_MODE_INPUT(baseReg, bitmask);
-	interrupts();
+
 }
 
 #if ONEWIRE_SEARCH
@@ -297,7 +252,7 @@ void OneWire::depower()
 // You need to use this function to start a search again from the beginning.
 // You do not need to do it for the first search, though you could.
 //
-void OneWire::reset_search()
+void DS2480B::reset_search()
 {
   // reset the search state
   LastDiscrepancy = 0;
@@ -312,7 +267,7 @@ void OneWire::reset_search()
 // Setup the search to find the device type 'family_code' on the next call
 // to search(*newAddr) if it is present.
 //
-void OneWire::target_search(uint8_t family_code)
+void DS2480B::target_search(uint8_t family_code)
 {
    // set the search state to find SearchFamily type devices
    ROM_NO[0] = family_code;
@@ -326,10 +281,10 @@ void OneWire::target_search(uint8_t family_code)
 //
 // Perform a search. If this function returns a '1' then it has
 // enumerated the next device and you may retrieve the ROM from the
-// OneWire::address variable. If there are no devices, no further
+// DS2480B::address variable. If there are no devices, no further
 // devices, or something horrible happens in the middle of the
 // enumeration then a 0 is returned.  If a new device is found then
-// its address is copied to newAddr.  Use OneWire::reset_search() to
+// its address is copied to newAddr.  Use DS2480B::reset_search() to
 // start over.
 //
 // --- Replaced by the one from the Dallas Semiconductor web site ---
@@ -339,7 +294,7 @@ void OneWire::target_search(uint8_t family_code)
 // Return TRUE  : device found, ROM number in ROM_NO buffer
 //        FALSE : device not found, end of search
 //
-uint8_t OneWire::search(uint8_t *newAddr)
+uint8_t DS2480B::search(uint8_t *newAddr)
 {
    uint8_t id_bit_number;
    uint8_t last_zero, rom_byte_number, search_result;
@@ -368,7 +323,10 @@ uint8_t OneWire::search(uint8_t *newAddr)
       }
 
       // issue the search command
-      write(0xF0);
+	  write(0xC1); //reset command to start a new transaction on the bus
+	  _port.write(0xE1); //go into data mode
+      write(0xF0); //send search command to DS18B20 units
+	  _port.write(0xE3); //back to command mode so we can use the single bit commands
 
       // loop to do the search
       do
@@ -492,7 +450,7 @@ static const uint8_t PROGMEM dscrc_table[] = {
 // compared to all those delayMicrosecond() calls.  But I got
 // confused, so I use this table from the examples.)
 //
-uint8_t OneWire::crc8(const uint8_t *addr, uint8_t len)
+uint8_t DS2480B::crc8(const uint8_t *addr, uint8_t len)
 {
 	uint8_t crc = 0;
 
@@ -506,7 +464,7 @@ uint8_t OneWire::crc8(const uint8_t *addr, uint8_t len)
 // Compute a Dallas Semiconductor 8 bit CRC directly.
 // this is much slower, but much smaller, than the lookup table.
 //
-uint8_t OneWire::crc8(const uint8_t *addr, uint8_t len)
+uint8_t DS2480B::crc8(const uint8_t *addr, uint8_t len)
 {
 	uint8_t crc = 0;
 	
@@ -524,13 +482,13 @@ uint8_t OneWire::crc8(const uint8_t *addr, uint8_t len)
 #endif
 
 #if ONEWIRE_CRC16
-bool OneWire::check_crc16(const uint8_t* input, uint16_t len, const uint8_t* inverted_crc, uint16_t crc)
+bool DS2480B::check_crc16(const uint8_t* input, uint16_t len, const uint8_t* inverted_crc, uint16_t crc)
 {
     crc = ~crc16(input, len, crc);
     return (crc & 0xFF) == inverted_crc[0] && (crc >> 8) == inverted_crc[1];
 }
 
-uint16_t OneWire::crc16(const uint8_t* input, uint16_t len, uint16_t crc)
+uint16_t DS2480B::crc16(const uint8_t* input, uint16_t len, uint16_t crc)
 {
     static const uint8_t oddparity[16] =
         { 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0 };

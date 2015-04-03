@@ -10,6 +10,8 @@
 #include "pins_arduino.h"  // for digitalPinToBitMask, etc
 #endif
 
+#include "AltSoftSerial.h"
+
 // You can exclude certain features from OneWire.  In theory, this
 // might save some space.  In practice, the compiler automatically
 // removes unused code (technically, the linker, using -fdata-sections
@@ -51,69 +53,26 @@
 // Platform specific I/O definitions
 
 #if defined(__AVR__)
-#define PIN_TO_BASEREG(pin)             (portInputRegister(digitalPinToPort(pin)))
-#define PIN_TO_BITMASK(pin)             (digitalPinToBitMask(pin))
-#define IO_REG_TYPE uint8_t
-#define IO_REG_ASM asm("r30")
-#define DIRECT_READ(base, mask)         (((*(base)) & (mask)) ? 1 : 0)
-#define DIRECT_MODE_INPUT(base, mask)   ((*((base)+1)) &= ~(mask))
-#define DIRECT_MODE_OUTPUT(base, mask)  ((*((base)+1)) |= (mask))
-#define DIRECT_WRITE_LOW(base, mask)    ((*((base)+2)) &= ~(mask))
-#define DIRECT_WRITE_HIGH(base, mask)   ((*((base)+2)) |= (mask))
-
 #elif defined(__MK20DX128__)
-#define PIN_TO_BASEREG(pin)             (portOutputRegister(pin))
-#define PIN_TO_BITMASK(pin)             (1)
-#define IO_REG_TYPE uint8_t
-#define IO_REG_ASM
-#define DIRECT_READ(base, mask)         (*((base)+512))
-#define DIRECT_MODE_INPUT(base, mask)   (*((base)+640) = 0)
-#define DIRECT_MODE_OUTPUT(base, mask)  (*((base)+640) = 1)
-#define DIRECT_WRITE_LOW(base, mask)    (*((base)+256) = 1)
-#define DIRECT_WRITE_HIGH(base, mask)   (*((base)+128) = 1)
-
 #elif defined(__SAM3X8E__)
-// Arduino 1.5.1 may have a bug in delayMicroseconds() on Arduino Due.
-// http://arduino.cc/forum/index.php/topic,141030.msg1076268.html#msg1076268
-// If you have trouble with OneWire on Arduino Due, please check the
-// status of delayMicroseconds() before reporting a bug in OneWire!
-#define PIN_TO_BASEREG(pin)             (&(digitalPinToPort(pin)->PIO_PER))
-#define PIN_TO_BITMASK(pin)             (digitalPinToBitMask(pin))
-#define IO_REG_TYPE uint32_t
-#define IO_REG_ASM
-#define DIRECT_READ(base, mask)         (((*((base)+15)) & (mask)) ? 1 : 0)
-#define DIRECT_MODE_INPUT(base, mask)   ((*((base)+5)) = (mask))
-#define DIRECT_MODE_OUTPUT(base, mask)  ((*((base)+4)) = (mask))
-#define DIRECT_WRITE_LOW(base, mask)    ((*((base)+13)) = (mask))
-#define DIRECT_WRITE_HIGH(base, mask)   ((*((base)+12)) = (mask))
 #ifndef PROGMEM
 #define PROGMEM
 #endif
 #ifndef pgm_read_byte
 #define pgm_read_byte(addr) (*(const uint8_t *)(addr))
 #endif
-
 #elif defined(__PIC32MX__)
-#define PIN_TO_BASEREG(pin)             (portModeRegister(digitalPinToPort(pin)))
-#define PIN_TO_BITMASK(pin)             (digitalPinToBitMask(pin))
-#define IO_REG_TYPE uint32_t
-#define IO_REG_ASM
-#define DIRECT_READ(base, mask)         (((*(base+4)) & (mask)) ? 1 : 0)  //PORTX + 0x10
-#define DIRECT_MODE_INPUT(base, mask)   ((*(base+2)) = (mask))            //TRISXSET + 0x08
-#define DIRECT_MODE_OUTPUT(base, mask)  ((*(base+1)) = (mask))            //TRISXCLR + 0x04
-#define DIRECT_WRITE_LOW(base, mask)    ((*(base+8+1)) = (mask))          //LATXCLR  + 0x24
-#define DIRECT_WRITE_HIGH(base, mask)   ((*(base+8+2)) = (mask))          //LATXSET + 0x28
-
 #else
-#error "Please define I/O register types here"
 #endif
 
+#define DATA_MODE		0xE1
+#define COMMAND_MODE	0xE3
+#define PULSE_TERM		0xF1
 
-class OneWire
+class DS2480B
 {
   private:
-    IO_REG_TYPE bitmask;
-    volatile IO_REG_TYPE *baseReg;
+	AltSoftSerial _port;
 
 #if ONEWIRE_SEARCH
     // global search state
@@ -124,7 +83,9 @@ class OneWire
 #endif
 
   public:
-    OneWire( uint8_t pin);
+    DS2480B(AltSoftSerial port);
+
+	void begin();
 
     // Perform a 1-Wire reset cycle. Returns 1 if a device responds
     // with a presence pulse.  Returns 0 if there is no device or the
@@ -150,9 +111,8 @@ class OneWire
 
     void read_bytes(uint8_t *buf, uint16_t count);
 
-    // Write a bit. The bus is always left powered at the end, see
-    // note in write() about that.
-    void write_bit(uint8_t v);
+    // Write a bit.
+    uint8_t write_bit(uint8_t v);
 
     // Read a bit.
     uint8_t read_bit(void);
