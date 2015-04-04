@@ -119,7 +119,6 @@ sample code bearing this copyright.
 
 #include "DS2480B.h"
 
-
 DS2480B::DS2480B(AltSoftSerial port)
 {
 	_port = port;
@@ -147,26 +146,31 @@ uint8_t DS2480B::reset(void)
 	//proper return is 0xCD otherwise something was wrong
 	while (!_port.available());
 	r = _port.read();
-	Serial.print("Reset return is ");
-	Serial.println(r);
 	if (r == 0xCD) return 1;
 	return 0;
 }
+
+void DS2480B::commandMode()
+{
+	_port.write(COMMAND_MODE);
+}
+
+void DS2480B::dataMode()
+{
+	_port.write(DATA_MODE);
+}
+
 
 //
 // Write a bit - actually returns the bit read back in case you care.
 //
 uint8_t DS2480B::write_bit(uint8_t v)
 {
-	Serial.print("Writing bit ");
-	Serial.println(v);
 	uint8_t val;
 	if (v == 1) _port.write(0x91); //write a single "on" bit to onewire
 	else _port.write(0x81); //write a single "off" bit to onewire
 	while (!_port.available());
 	val = _port.read();
-	Serial.print("Result of write ");
-	Serial.println(val);
 	return val & 1;
 }
 
@@ -176,8 +180,6 @@ uint8_t DS2480B::write_bit(uint8_t v)
 uint8_t DS2480B::read_bit(void)
 {
 	uint8_t r = write_bit(1);
-	Serial.print("Returned bit ");
-	Serial.println(r);
 	return r;
 }
 
@@ -190,15 +192,11 @@ uint8_t DS2480B::read_bit(void)
 //
 void DS2480B::write(uint8_t v, uint8_t power /* = 0 */) {
 	uint8_t r;
-	Serial.print("Writing byte ");
-	Serial.println(v, HEX);
 	_port.write(v);
 	//need to double up transmission if the sent byte was one of the command bytes
 	if (v == DATA_MODE || v == COMMAND_MODE || v == PULSE_TERM) _port.write(v);
 	while (!_port.available());
 	r = _port.read(); //throw away reply
-	Serial.print("Response: ");
-	Serial.println(r);
 }
 
 void DS2480B::write_bytes(const uint8_t *buf, uint16_t count, bool power /* = 0 */) {
@@ -227,7 +225,6 @@ void DS2480B::read_bytes(uint8_t *buf, uint16_t count) {
 void DS2480B::select(const uint8_t rom[8])
 {
     uint8_t i;
-
     write(0x55);           // Choose ROM
 
     for (i = 0; i < 8; i++) write(rom[i]);
@@ -324,9 +321,9 @@ uint8_t DS2480B::search(uint8_t *newAddr)
 
       // issue the search command
 	  write(0xC1); //reset command to start a new transaction on the bus
-	  _port.write(0xE1); //go into data mode
+	  dataMode();
       write(0xF0); //send search command to DS18B20 units
-	  _port.write(0xE3); //back to command mode so we can use the single bit commands
+	  commandMode();
 
       // loop to do the search
       do

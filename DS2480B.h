@@ -92,6 +92,9 @@ class DS2480B
     // bus is shorted or otherwise held low for more than 250uS
     uint8_t reset(void);
 
+	void commandMode();
+	void dataMode();
+
     // Issue a 1-Wire rom select command, you do the reset first.
     void select(const uint8_t rom[8]);
 
