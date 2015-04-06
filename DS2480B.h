@@ -73,6 +73,7 @@ class DS2480B
 {
   private:
 	AltSoftSerial _port;
+	bool isCmdMode;
 
 #if ONEWIRE_SEARCH
     // global search state
@@ -92,6 +93,9 @@ class DS2480B
     // bus is shorted or otherwise held low for more than 250uS
     uint8_t reset(void);
 
+	void beginTransaction();
+	void endTransaction();
+
 	void commandMode();
 	void dataMode();
 
@@ -106,6 +110,8 @@ class DS2480B
     // for eventually depowering it by calling depower() or doing
     // another read or write.
     void write(uint8_t v, uint8_t power = 0);
+
+	void writeCmd(uint8_t v, uint8_t power = 0);
 
     void write_bytes(const uint8_t *buf, uint16_t count, bool power = 0);
 

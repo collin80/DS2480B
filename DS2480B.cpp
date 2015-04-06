@@ -130,6 +130,7 @@ DS2480B::DS2480B(AltSoftSerial port)
 void DS2480B::begin()
 {
 	_port.write(0xC1);
+	isCmdMode = true;
 }
 
 
@@ -142,6 +143,9 @@ void DS2480B::begin()
 uint8_t DS2480B::reset(void)
 {
 	uint8_t r;
+
+	commandMode();
+
 	_port.write(0xC1);
 	//proper return is 0xCD otherwise something was wrong
 	while (!_port.available());
@@ -150,16 +154,34 @@ uint8_t DS2480B::reset(void)
 	return 0;
 }
 
-void DS2480B::commandMode()
-{
-	_port.write(COMMAND_MODE);
-}
-
 void DS2480B::dataMode()
 {
-	_port.write(DATA_MODE);
+	if (isCmdMode)
+	{
+		_port.write(DATA_MODE);
+		isCmdMode = false;
+	}
 }
 
+void DS2480B::commandMode()
+{
+	if (!isCmdMode)
+	{
+		_port.write(COMMAND_MODE);
+		isCmdMode = true;
+	}
+}
+
+
+void DS2480B::beginTransaction()
+{
+	dataMode();
+}
+
+void DS2480B::endTransaction()
+{
+	commandMode();
+}
 
 //
 // Write a bit - actually returns the bit read back in case you care.
@@ -167,6 +189,7 @@ void DS2480B::dataMode()
 uint8_t DS2480B::write_bit(uint8_t v)
 {
 	uint8_t val;
+	commandMode();
 	if (v == 1) _port.write(0x91); //write a single "on" bit to onewire
 	else _port.write(0x81); //write a single "off" bit to onewire
 	while (!_port.available());
@@ -192,9 +215,24 @@ uint8_t DS2480B::read_bit(void)
 //
 void DS2480B::write(uint8_t v, uint8_t power /* = 0 */) {
 	uint8_t r;
+
+	dataMode();
+
 	_port.write(v);
 	//need to double up transmission if the sent byte was one of the command bytes
 	if (v == DATA_MODE || v == COMMAND_MODE || v == PULSE_TERM) _port.write(v);
+	while (!_port.available());
+	r = _port.read(); //throw away reply
+}
+
+void DS2480B::writeCmd(uint8_t v, uint8_t power)
+{
+	uint8_t r;
+
+	commandMode();
+
+	_port.write(v);
+
 	while (!_port.available());
 	r = _port.read(); //throw away reply
 }
@@ -208,6 +246,9 @@ void DS2480B::write_bytes(const uint8_t *buf, uint16_t count, bool power /* = 0 
 //
 uint8_t DS2480B::read() {
 	uint8_t r;
+
+	dataMode();
+
 	_port.write(0xFF);
 	while (!_port.available());
     r = _port.read();
@@ -225,6 +266,8 @@ void DS2480B::read_bytes(uint8_t *buf, uint16_t count) {
 void DS2480B::select(const uint8_t rom[8])
 {
     uint8_t i;
+
+	dataMode();
     write(0x55);           // Choose ROM
 
     for (i = 0; i < 8; i++) write(rom[i]);
@@ -235,6 +278,7 @@ void DS2480B::select(const uint8_t rom[8])
 //
 void DS2480B::skip()
 {
+	dataMode();
     write(0xCC);           // Skip ROM
 }
 
@@ -320,10 +364,7 @@ uint8_t DS2480B::search(uint8_t *newAddr)
       }
 
       // issue the search command
-	  write(0xC1); //reset command to start a new transaction on the bus
-	  dataMode();
       write(0xF0); //send search command to DS18B20 units
-	  commandMode();
 
       // loop to do the search
       do

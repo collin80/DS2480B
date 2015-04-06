@@ -68,21 +68,17 @@ void loop(void) {
   } 
   
   ds.reset();
-  ds.commandMode();
   
   delay(100);
 
   ds.reset();
-  ds.dataMode();
   ds.select(addr);
   ds.write(0x44);        // start conversion
-  ds.commandMode();
   
   delay(1000);     // maybe 750ms is enough, maybe not
   // we might do a ds.depower() here, but the reset will take care of it.
   
   present = ds.reset();
-  ds.dataMode();
   ds.select(addr);    
   ds.write(0xBE);         // Read Scratchpad
 
