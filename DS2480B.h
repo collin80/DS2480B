@@ -83,6 +83,8 @@ class DS2480B
     uint8_t LastDeviceFlag;
 #endif
 
+  bool waitForReply();
+
   public:
     DS2480B(AltSoftSerial port);
 

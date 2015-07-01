@@ -183,6 +183,16 @@ void DS2480B::endTransaction()
 	commandMode();
 }
 
+bool DS2480B::waitForReply()
+{
+	for (uint16_t i = 0; i < 30000; i++)
+	{
+		if (_port.available()) return true;
+	}
+	return false;
+}
+
+
 //
 // Write a bit - actually returns the bit read back in case you care.
 //
@@ -192,7 +202,7 @@ uint8_t DS2480B::write_bit(uint8_t v)
 	commandMode();
 	if (v == 1) _port.write(0x91); //write a single "on" bit to onewire
 	else _port.write(0x81); //write a single "off" bit to onewire
-	while (!_port.available());
+	if (!waitForReply()) return 0;
 	val = _port.read();
 	return val & 1;
 }
@@ -221,7 +231,7 @@ void DS2480B::write(uint8_t v, uint8_t power /* = 0 */) {
 	_port.write(v);
 	//need to double up transmission if the sent byte was one of the command bytes
 	if (v == DATA_MODE || v == COMMAND_MODE || v == PULSE_TERM) _port.write(v);
-	while (!_port.available());
+	if (!waitForReply()) return;
 	r = _port.read(); //throw away reply
 }
 
@@ -233,7 +243,7 @@ void DS2480B::writeCmd(uint8_t v, uint8_t power)
 
 	_port.write(v);
 
-	while (!_port.available());
+	if (!waitForReply()) return;
 	r = _port.read(); //throw away reply
 }
 
@@ -250,7 +260,7 @@ uint8_t DS2480B::read() {
 	dataMode();
 
 	_port.write(0xFF);
-	while (!_port.available());
+	if (!waitForReply()) return 0;
     r = _port.read();
     return r;
 }
